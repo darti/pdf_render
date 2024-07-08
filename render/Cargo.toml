@@ -7,6 +7,7 @@ edition = "2021"
 [features]
 unstable = []
 embed = ["dep:rust-embed"]
+glyphmatcher = ["dep:glyphmatcher"]
 
 [[bench]]
 name = "render"
@@ -24,7 +25,7 @@ pathfinder_geometry = { git = "https://github.com/servo/pathfinder" }
 pathfinder_resources = { git = "https://github.com/servo/pathfinder" }
 pathfinder_content = { git = "https://github.com/servo/pathfinder" }
 log = "0.4"
-font = { git = "https://github.com/pdf-rs/font" }
+font = { git = "https://github.com/pdf-rs/font", features = ["cff", "truetype"] }
 pdf_encoding = "0.4"
 itertools = "*"
 image = "0.24.2"
@@ -34,7 +35,8 @@ globalcache = { version = "0.3", features = ["sync"] }
 istring = { git = "https://github.com/s3bk/istring" }
 once_cell = "*"
 serde_json = "*"
-glyphmatcher = { git = "https://github.com/s3bk/glyphmatcher" }
+glyphmatcher = { git = "https://github.com/s3bk/glyphmatcher", optional = true }
+vello_encoding = "*"
 rust-embed = { version = "*", optional = true, features = ["interpolate-folder-path"] }
 
 [dev-dependencies]

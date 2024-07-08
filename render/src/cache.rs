@@ -1,6 +1,7 @@
 use std::path::{PathBuf};
 use std::sync::Arc;
 
+use font::Encoder;
 use pdf::object::*;
 use pdf::primitive::Name;
 use pdf::font::{Font as PdfFont};
@@ -13,6 +14,7 @@ use pathfinder_content::{
     pattern::{Image},
 };
 
+use crate::font::GlyphData;
 use crate::BlendMode;
 
 use super::{fontentry::FontEntry};
@@ -31,27 +33,38 @@ impl ValueSize for ImageResult {
     }
 }
 
-pub struct Cache {
+pub struct Cache<E: Encoder> {
     // shared mapping of fontname -> font
-    fonts: Arc<SyncCache<usize, Option<Arc<FontEntry>>>>,
+    fonts: Arc<SyncCache<usize, Option<Arc<FontEntry<E>>>>>,
     images: Arc<SyncCache<(Ref<XObject>, BlendMode), ImageResult>>,
-    std: StandardCache,
+    std: StandardCache<E>,
     missing_fonts: Vec<Name>,
+    encoder: E,
 }
-
-impl Cache {
-    pub fn new() -> Cache {
+impl<E: Encoder + 'static> Cache<E> where E::GlyphRef: Send + Sync {
+    pub fn new(encoder: E) -> Cache<E> {
+        let standard_fonts;
+        if let Some(path) = std::env::var_os("STANDARD_FONTS") {
+            standard_fonts = PathBuf::from(path);
+        } else {
+            eprintln!("PDF: STANDARD_FONTS not set. using fonts/ instead.");
+            standard_fonts = PathBuf::from("fonts");
+        }
+        if !standard_fonts.is_dir() {
+            panic!("STANDARD_FONTS (or fonts/) is not directory.");
+        }
         Cache {
             fonts: SyncCache::new(),
             images: SyncCache::new(),
             std: StandardCache::new(),
             missing_fonts: Vec::new(),
+            encoder,
         }
     }
-    pub fn get_font(&mut self, pdf_font: &MaybeRef<PdfFont>, resolve: &impl Resolve) -> Result<Option<Arc<FontEntry>>, > {
+    pub fn get_font(&mut self, pdf_font: &MaybeRef<PdfFont>, resolve: &impl Resolve) -> Result<Option<Arc<FontEntry<E>>>> {
         let mut error = None;
         let val = self.fonts.get(&**pdf_font as *const PdfFont as usize, |_| 
-            match load_font(pdf_font, resolve, &mut self.std) {
+            match load_font(&mut self.encoder, pdf_font, resolve, &self.std) {
                 Ok(Some(f)) => Some(Arc::new(f)),
                 Ok(None) => {
                     if let Some(ref name) = pdf_font.name {
@@ -79,7 +92,7 @@ impl Cache {
         )
     }
 }
-impl Drop for Cache {
+impl<E: Encoder> Drop for Cache<E> {
     fn drop(&mut self) {
         info!("missing fonts:");
         for name in self.missing_fonts.iter() {
