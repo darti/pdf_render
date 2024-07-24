@@ -38,6 +38,7 @@ serde_json = "*"
 glyphmatcher = { git = "https://github.com/s3bk/glyphmatcher", optional = true }
 vello_encoding = "*"
 vello = "0.2.0"
+backtrace = "0.3.73"
 rust-embed = { version = "*", optional = true, features = ["interpolate-folder-path"] }
 
 [dev-dependencies]
