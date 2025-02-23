@@ -9,27 +9,29 @@ unstable = []
 
 [dependencies.pdf]
 git = "https://github.com/pdf-rs/pdf"
-default-features=false 
+default-features = false
 features = ["dump"]
 
 [dependencies.pdf_render]
 path = "../render"
 
 [dependencies]
-pathfinder_geometry = { git = "https://github.com/servo/pathfinder" }
-log = { version = "0.4" }
-structopt = "0.3"
-font = { git = "https://github.com/pdf-rs/font", branch = "vello"}
-itertools = "*"
-image = "0.24.2"
-vello =  { git="https://github.com/linebender/vello", branch="main" }
-winit = "0.30.0"
-env_logger = "0.10.0"
-pollster = "0.3.0"
-clap = { version = "4.5.10", features = ["derive"] }
+pathfinder_geometry.workspace = true
+log.workspace = true
+
+font.workspace = true
+itertools.workspace = true
+
+image.workspace = true
+vello.workspace = true
+
+winit.workspace = true
+env_logger.workspace = true
+pollster.workspace = true
+clap.workspace = true
 
 [dev-dependencies]
-criterion = "0.3"
+criterion.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]

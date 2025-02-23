@@ -2,3 +2,44 @@
 resolver = "2"
 
 members = ["render", "vview"]
+
+[workspace.dependencies]
+log = "0.4"
+
+itertools = "*"
+backtrace = "0.3.74"
+custom_debug_derive = "*"
+criterion = "0.5"
+
+globalcache = { version = "0.3", features = ["sync"] }
+
+instant = "*"
+once_cell = "*"
+serde_json = "*"
+
+winit = "0.30.9"
+env_logger = "0.11.6"
+pollster = "0.4.0"
+clap = { version = "4.5.30", features = ["derive"] }
+
+rust-embed = { version = "*", features = ["interpolate-folder-path"] }
+
+pdf_encoding = "0.4"
+
+pathfinder_color = { git = "https://github.com/servo/pathfinder" }
+pathfinder_geometry = { git = "https://github.com/servo/pathfinder" }
+pathfinder_resources = { git = "https://github.com/servo/pathfinder" }
+pathfinder_content = { git = "https://github.com/servo/pathfinder" }
+
+image = "0.25.5"
+
+vello_encoding = "*"
+vello = "0.4.0"
+
+font = { git = "https://github.com/pdf-rs/font", branch = "vello", features = [
+    'cff',
+] }
+
+glyphmatcher = { git = "https://github.com/s3bk/glyphmatcher" }
+
+istring = { git = "https://github.com/s3bk/istring" }

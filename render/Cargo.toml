@@ -14,33 +14,35 @@ name = "render"
 harness = false
 
 [dependencies.pdf]
-default-features=false 
+default-features = false
 features = ["cache", "dump"]
 git = "https://github.com/pdf-rs/pdf"
 
 [dependencies]
 # pathfinder_renderer = { git = "https://github.com/servo/pathfinder" }
-pathfinder_color = { git = "https://github.com/servo/pathfinder" }
-pathfinder_geometry = { git = "https://github.com/servo/pathfinder" }
-pathfinder_resources = { git = "https://github.com/servo/pathfinder" }
-pathfinder_content = { git = "https://github.com/servo/pathfinder" }
-log = "0.4"
-font = { git = "https://github.com/pdf-rs/font", branch = "vello", features=['cff']}
-pdf_encoding = "0.4"
-itertools = "*"
-image = "0.24.2"
-instant = "*"
-custom_debug_derive = "*"
-globalcache = { version = "0.3", features = ["sync"] }
-istring = { git = "https://github.com/s3bk/istring" }
-once_cell = "*"
-serde_json = "*"
-glyphmatcher = { git = "https://github.com/s3bk/glyphmatcher", optional = true }
-vello_encoding = "*"
-vello = "0.2.0"
-backtrace = "0.3.73"
-rust-embed = { version = "*", optional = true, features = ["interpolate-folder-path"] }
+pathfinder_color.workspace = true
+pathfinder_geometry.workspace = true
+pathfinder_resources.workspace = true
+pathfinder_content.workspace = true
+log.workspace = true
+font.workspace = true
+pdf_encoding.workspace = true
+itertools.workspace = true
+
+rust-embed = { workspace = true, optional = true }
+
+image.workspace = true
+instant.workspace = true
+custom_debug_derive.workspace = true
+globalcache.workspace = true
+istring.workspace = true
+once_cell.workspace = true
+serde_json.workspace = true
+glyphmatcher = { workspace = true, optional = true }
+vello_encoding.workspace = true
+vello.workspace = true
+backtrace.workspace = true
 
 [dev-dependencies]
-criterion = "0.3"
-env_logger = "*"
+criterion.workspace = true
+env_logger.workspace = true
