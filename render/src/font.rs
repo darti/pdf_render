@@ -1,21 +1,21 @@
 use std::borrow::Cow;
-use std::path::{PathBuf};
-use std::ops::Deref;
 use std::collections::HashMap;
+use std::ops::Deref;
+use std::path::PathBuf;
 
-#[cfg(feature="glyphmatcher")]
+#[cfg(feature = "glyphmatcher")]
 use glyphmatcher::FontDb;
 
+use pdf::error::{PdfError, Result};
+use pdf::font::Font as PdfFont;
 use pdf::object::*;
-use pdf::font::{Font as PdfFont};
-use pdf::error::{Result, PdfError};
 
-use font::{self, Encoder, FontType, FontVariant};
-use vello_encoding::{Encoding, PathEncoder};
-use std::sync::Arc;
 use super::FontEntry;
+use font::{self, Encoder, FontType, FontVariant};
 use globalcache::{sync::SyncCache, ValueSize};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+use vello_encoding::{Encoding, PathEncoder};
 
 pub struct FontRc<E: Encoder>(Arc<font::FontVariant<E>>);
 impl<E: Encoder> Clone for FontRc<E> {
@@ -58,53 +58,58 @@ impl<E: Encoder> Hash for FontRc<E> {
 }
 pub struct StandardCache<E: Encoder> {
     inner: Arc<SyncCache<String, Option<FontRc<E>>>>,
-    
-    #[cfg(not(feature="embed"))]
+
+    #[cfg(not(feature = "embed"))]
     dir: PathBuf,
 
-    #[cfg(feature="embed")]
+    #[cfg(feature = "embed")]
     dir: EmbeddedStandardFonts,
 
     fonts: HashMap<String, String>,
     dump: Dump,
 
-    #[cfg(feature="glyphmatcher")]
+    #[cfg(feature = "glyphmatcher")]
     font_db: Option<FontDb>,
-    
+
     require_unique_unicode: bool,
 }
-impl<E: Encoder + 'static> StandardCache<E> where E::GlyphRef: Sync + Send {
-    #[cfg(not(feature="embed"))]
-    pub fn new(dir: PathBuf) -> Self { 
+impl<E: Encoder + 'static> StandardCache<E>
+where
+    E::GlyphRef: Sync + Send,
+{
+    #[cfg(not(feature = "embed"))]
+    pub fn new(dir: PathBuf) -> Self {
         let data = std::fs::read_to_string(dir.join("fonts.json")).expect("can't read fonts.json");
-        let fonts: HashMap<String, String> = serde_json::from_str(&data).expect("fonts.json is invalid");
+        let fonts: HashMap<String, String> =
+            serde_json::from_str(&data).expect("fonts.json is invalid");
 
         let dump = match std::env::var("DUMP_FONT").as_deref() {
             Err(_) => Dump::Never,
             Ok("always") => Dump::Always,
             Ok("error") => Dump::OnError,
-            Ok(_) => Dump::Never
+            Ok(_) => Dump::Never,
         };
         let db_path = dir.join("db");
 
-        #[cfg(feature="glyphmatcher")]
+        #[cfg(feature = "glyphmatcher")]
         let font_db = db_path.is_dir().then(|| FontDb::new(db_path));
         dbg!(&dump);
 
         StandardCache {
             inner: SyncCache::new(),
-            dir: standard_fonts,
+            dir: dir,
             fonts,
             dump,
-            #[cfg(feature="glyphmatcher")]
+            #[cfg(feature = "glyphmatcher")]
             font_db,
             require_unique_unicode: false,
         }
     }
-    #[cfg(feature="embed")]
+    #[cfg(feature = "embed")]
     pub fn new() -> StandardCache {
         let ref data = EmbeddedStandardFonts::get("fonts.json").unwrap().data;
-        let fonts: HashMap<String, String> = serde_json::from_slice(&data).expect("fonts.json is invalid");
+        let fonts: HashMap<String, String> =
+            serde_json::from_slice(&data).expect("fonts.json is invalid");
 
         StandardCache {
             inner: SyncCache::new(),
@@ -127,7 +132,9 @@ pub trait DirRead: Sized {
 
 impl DirRead for PathBuf {
     fn read_file(&self, name: &str) -> Result<Cow<'static, [u8]>> {
-        std::fs::read(self.join(name)).map_err(|e| e.into()).map(|d| d.into())
+        std::fs::read(self.join(name))
+            .map_err(|e| e.into())
+            .map(|d| d.into())
     }
     fn sub_dir(&self, name: &str) -> Option<Self> {
         let sub = self.join(name);
@@ -139,15 +146,19 @@ impl DirRead for PathBuf {
     }
 }
 
-#[cfg(feature="embed")]
+#[cfg(feature = "embed")]
 #[derive(rust_embed::Embed)]
 #[folder = "$STANDARD_FONTS"]
 pub struct EmbeddedStandardFonts;
 
-#[cfg(feature="embed")]
+#[cfg(feature = "embed")]
 impl DirRead for EmbeddedStandardFonts {
     fn read_file(&self, name: &str) -> Result<Cow<'static, [u8]>> {
-        EmbeddedStandardFonts::get(name).map(|f| f.data).ok_or_else(|| PdfError::Other { msg: "Filed {name:?} not embedded".into() })
+        EmbeddedStandardFonts::get(name)
+            .map(|f| f.data)
+            .ok_or_else(|| PdfError::Other {
+                msg: "Filed {name:?} not embedded".into(),
+            })
     }
     fn sub_dir(&self, name: &str) -> Option<Self> {
         None
@@ -158,12 +169,12 @@ impl DirRead for EmbeddedStandardFonts {
 enum Dump {
     Never,
     OnError,
-    Always
+    Always,
 }
 
 pub struct GlyphData {
     encoding: vello_encoding::Encoding,
-    offsets: Vec<Offset>
+    offsets: Vec<Offset>,
 }
 struct Offset {
     path_tag: usize,
@@ -172,13 +183,19 @@ struct Offset {
 }
 impl GlyphData {
     pub fn new() -> Self {
-        GlyphData { encoding: Encoding::new(), offsets: vec![] }
+        GlyphData {
+            encoding: Encoding::new(),
+            offsets: vec![],
+        }
     }
 }
 impl font::Encoder for GlyphData {
     type Pen<'a> = PathEncoder<'a>;
     type GlyphRef = u32;
-    fn encode_shape<'f, O, E>(&mut self, mut f: impl for<'b> FnMut(&mut Self::Pen<'b>) -> Result<O, E> + 'f) -> Result<(O, Self::GlyphRef), E> {
+    fn encode_shape<'f, O, E>(
+        &mut self,
+        mut f: impl for<'b> FnMut(&mut Self::Pen<'b>) -> Result<O, E> + 'f,
+    ) -> Result<(O, Self::GlyphRef), E> {
         let mut p: PathEncoder = self.encoding.encode_path(true);
         let o = f(&mut p)?;
         p.finish(true);
@@ -192,21 +209,35 @@ impl font::Encoder for GlyphData {
     }
 }
 
-
-pub fn load_font<E: Encoder + 'static>(encoder: &mut E, font_ref: &MaybeRef<PdfFont>, resolve: &impl Resolve, cache: &StandardCache<E>) -> Result<Option<FontEntry<E>>>
-    where FontRc<E>: Send
+pub fn load_font<E: Encoder + 'static>(
+    encoder: &mut E,
+    font_ref: &MaybeRef<PdfFont>,
+    resolve: &impl Resolve,
+    cache: &StandardCache<E>,
+) -> Result<Option<FontEntry<E>>>
+where
+    FontRc<E>: Send,
 {
     let pdf_font = font_ref.clone();
     debug!("loading {:?}", pdf_font);
-    
+
     let font: FontRc<E> = match pdf_font.embedded_data(resolve) {
         Some(Ok(data)) => {
             debug!("loading embedded font");
-            let font = font::parse(&data, encoder).map_err(|e| {
-                PdfError::Other { msg: format!("Font Error: {:?}", e) }
+            let font = font::parse(&data, encoder).map_err(|e| PdfError::Other {
+                msg: format!("Font Error: {:?}", e),
             });
-            if matches!(cache.dump, Dump::Always) || (matches!(cache.dump, Dump::OnError) && font.is_err()) {
-                let name = format!("font_{}", pdf_font.name.as_ref().map(|s| s.as_str()).unwrap_or("unnamed"));
+            if matches!(cache.dump, Dump::Always)
+                || (matches!(cache.dump, Dump::OnError) && font.is_err())
+            {
+                let name = format!(
+                    "font_{}",
+                    pdf_font
+                        .name
+                        .as_ref()
+                        .map(|s| s.as_str())
+                        .unwrap_or("unnamed")
+                );
                 std::fs::write(&name, &data).unwrap();
                 println!("font dumped in {}", name);
             }
@@ -217,7 +248,7 @@ pub fn load_font<E: Encoder + 'static>(encoder: &mut E, font_ref: &MaybeRef<PdfF
             debug!("no embedded font.");
             let name = match pdf_font.name {
                 Some(ref name) => name.as_str(),
-                None => return Ok(None)
+                None => return Ok(None),
             };
             debug!("loading {name} instead");
             match cache.fonts.get(name).or_else(|| cache.fonts.get("Arial")) {
@@ -253,7 +284,12 @@ pub fn load_font<E: Encoder + 'static>(encoder: &mut E, font_ref: &MaybeRef<PdfF
         }
     };
 
-    Ok(Some(FontEntry::build(font, pdf_font, 
-        #[cfg(feature="glyphmatcher")] cache.font_db.as_ref(),
-        resolve, cache.require_unique_unicode)?))
+    Ok(Some(FontEntry::build(
+        font,
+        pdf_font,
+        #[cfg(feature = "glyphmatcher")]
+        cache.font_db.as_ref(),
+        resolve,
+        cache.require_unique_unicode,
+    )?))
 }

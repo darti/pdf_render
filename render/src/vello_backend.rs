@@ -8,9 +8,8 @@ use pathfinder_content::{
 };
 use pathfinder_geometry::{rect::RectF, transform2d::Transform2F, vector::Vector2F};
 use vello::{
-    skrifa::color::Brush,
     kurbo::{Affine, BezPath, Cap, Stroke},
-    peniko::{Blob, BrushRef, Color, Fill, Format, Image, Mix},
+    peniko::{Blob, BrushRef, Color, Fill, Image, ImageFormat, Mix},
     Scene,
 };
 
@@ -49,19 +48,27 @@ impl<'a> VelloBackend<'a> {
         self.scene
     }
 
-    fn do_draw_image(&mut self, image: &Image, transform: Transform2F, clip: Option<<VelloBackend<'_> as Backend>::ClipPathId>) {
+    fn do_draw_image(
+        &mut self,
+        image: &Image,
+        transform: Transform2F,
+        clip: Option<<VelloBackend<'_> as Backend>::ClipPathId>,
+    ) {
         if let Some(clip_id) = clip {
             let (clip_path, _) = self.clip_paths.get(clip_id).unwrap();
 
-            self.scene.push_layer(Mix::Clip, 1.0,  Affine::IDENTITY, clip_path);
+            self.scene
+                .push_layer(Mix::Clip, 1.0, Affine::IDENTITY, clip_path);
         }
 
         let im_tr = transform
-            * Transform2F::from_scale(Vector2F::new(1.0 / (image.width as f32), -1.0 / (image.height as f32)))
+            * Transform2F::from_scale(Vector2F::new(
+                1.0 / (image.width as f32),
+                -1.0 / (image.height as f32),
+            ))
             * Transform2F::from_translation(Vector2F::new(0.0, -(image.height as f32)));
 
-        self.scene
-            .draw_image(&image, transform_to_affine(im_tr));
+        self.scene.draw_image(&image, transform_to_affine(im_tr));
 
         if clip.is_some() {
             self.scene.pop_layer();
@@ -108,16 +115,8 @@ pub fn outline_to_bez(outline: &Outline) -> BezPath {
 
 fn convert_fill(fill: &FillMode) -> BrushRef<'static> {
     match fill.color {
-        crate::Fill::Solid(r, g, b) => {
-            let ColorU { r, g, b, a } = ColorF::new(r, g, b, fill.alpha).to_u8();
-            BrushRef::Solid(Color { r, g, b, a })
-        }
-        _ => BrushRef::Solid(Color {
-            r: 255,
-            g: 0,
-            b: 255,
-            a: 127,
-        }),
+        crate::Fill::Solid(r, g, b) => BrushRef::Solid(Color::new([r, g, b, fill.alpha])),
+        _ => BrushRef::Solid(Color::new([1.0, 0.0, 1.0, 0.5])),
     }
 }
 fn convert_stroke(stroke: &crate::backend::Stroke) -> vello::kurbo::Stroke {
@@ -231,12 +230,12 @@ impl<'a> Backend for VelloBackend<'a> {
             .get_image(xref, im, resources, resolve, mode)
             .rgba_data()
         {
-            let image: Image = Image::new(Blob::new(data), Format::Rgba8, width, height);
+            let image: Image = Image::new(Blob::new(data), ImageFormat::Rgba8, width, height);
 
             self.do_draw_image(&image, transform, clip);
         }
     }
-    
+
     fn draw_inline_image(
         &mut self,
         im: &std::sync::Arc<pdf::object::ImageXObject>,
@@ -246,10 +245,15 @@ impl<'a> Backend for VelloBackend<'a> {
         clip: Option<Self::ClipPathId>,
         resolve: &impl pdf::object::Resolve,
     ) {
-        if let Ok(image_data)  = load_image(im, resources, resolve, mode) {
+        if let Ok(image_data) = load_image(im, resources, resolve, mode) {
             let width = image_data.width();
             let height = image_data.height();
-            let image: Image = Image::new(Blob::new(image_data.rgba_data()), Format::Rgba8, width, height);
+            let image: Image = Image::new(
+                Blob::new(image_data.rgba_data()),
+                ImageFormat::Rgba8,
+                width,
+                height,
+            );
 
             self.do_draw_image(&image, transform, clip);
         }

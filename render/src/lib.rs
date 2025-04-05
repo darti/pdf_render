@@ -23,10 +23,10 @@ mod backend;
 mod cache;
 mod fontentry;
 mod graphicsstate;
+mod image;
 mod renderstate;
 mod textstate;
 // pub mod tracer;
-mod image;
 // mod pathfinder_backend;
 mod font;
 pub mod vello_backend;
@@ -112,7 +112,7 @@ pub fn render_page(
 
     let rotate: Transform2F =
         Transform2F::from_rotation(page.rotate as f32 * std::f32::consts::PI / 180.);
-    
+
     let br = rotate * RectF::new(Vector2F::zero(), page_bounds.size());
 
     let translate: Transform2F = Transform2F::from_translation(Vector2F::new(
@@ -121,7 +121,7 @@ pub fn render_page(
     ));
 
     let view_box = transform * translate * br;
-    
+
     // dbg!(size, view_box);
     backend.set_view_box(view_box);
 
@@ -129,7 +129,7 @@ pub fn render_page(
         * translate
         * rotate
         // zoom out x by SCALE, moved (-bounds.min_x()), so new x:  old_x * SCALE + (-bounds.min_x())
-        // zoom out y by -SCALE, moved bounds.max_y(), so new y:  old y * (-SCALE) + bounds.max_y() 
+        // zoom out y by -SCALE, moved bounds.max_y(), so new y:  old y * (-SCALE) + bounds.max_y()
         * Transform2F::row_major(SCALE, 0.0, -page_bounds.min_x(), 0.0, -SCALE, page_bounds.max_y());
 
     let resources = t!(page.resources());

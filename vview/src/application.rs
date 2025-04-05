@@ -1,33 +1,27 @@
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::transform2d::Transform2F;
-use pathfinder_geometry::vector::Vector2F;
-use vello::kurbo::{Affine, Line, Stroke, Vec2};
-use vello::util::RenderContext;
-use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::window::{Window, WindowId};
-use winit::dpi::LogicalSize;
-use winit::keyboard::{Key, ModifiersState, NamedKey};
-use winit::window::Icon;
+// Copyright 2024 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::fs::File;
+//! Simple example.
+
+use pathfinder_geometry::transform2d::Transform2F;
+use pdf_render::vello_backend::{OutlineBuilder, VelloBackend};
+use pdf_render::{render_page, Cache};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use font::Encoder;
-use pdf::file::{File as PdfFile, Cache as PdfCache, Log};
-use pdf::any::AnySync;
-use pdf::object::PageRc;
-use pdf::PdfError;
-use pdf::backend::Backend;
-use pdf_render::vello_backend::{VelloBackend, OutlineBuilder};
-use pdf_render::{page_bounds, render_page, Cache, Size};
-
+use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
+use vello::peniko::color::palette;
 use vello::peniko::Color;
-use vello::util::RenderSurface;
-use vello::{Renderer, RendererOptions, Scene};
-use vello::wgpu;
+use vello::util::{RenderContext, RenderSurface};
+use vello::{AaConfig, Renderer, RendererOptions, Scene};
+use winit::application::ApplicationHandler;
+use winit::dpi::LogicalSize;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::window::Window;
 
+use vello::wgpu;
+/// Simple struct to hold the state of the renderer
+#[derive(Debug)]
 pub struct ActiveRenderState<'s> {
     // The fields MUST be in this order, so that the surface is dropped before the window
     surface: RenderSurface<'s>,
@@ -40,207 +34,241 @@ enum RenderState<'s> {
     Suspended(Option<Arc<Window>>),
 }
 
-pub struct App<'a> {
+pub struct App<'s> {
+    // The vello RenderContext which is a global context that lasts for the
+    // lifetime of the application
+    context: RenderContext,
+
+    // An array of renderers, one per wgpu device
     renderers: Vec<Option<Renderer>>,
-    render_ctx : RenderContext,
-    render_state : RenderState<'a>,
-    modifiers: ModifiersState,
-    mouse_down: bool,
+
+    // State for our example where we store the winit Window and the wgpu Surface
+    state: RenderState<'s>,
+
+    // A vello Scene which is a data structure which allows one to build up a
+    // description a scene to be drawn (with paths, fills, images, text, etc)
+    // which is then passed to a renderer for rendering
+    scene: Scene,
+
     view_ctx: ViewContext,
-    prior_position: Option<Vector2F>,
-    transform: Transform2F
 }
 
-impl<'a>  App<'a> {
+impl<'s> App<'s> {
     fn new(view_ctx: ViewContext) -> Self {
         Self {
             renderers: vec![],
-            render_ctx: RenderContext::new(),
-            render_state : RenderState::Suspended(None),
-            modifiers: ModifiersState::default(),
-            mouse_down : false,
+            context: RenderContext::new(),
+            state: RenderState::Suspended(None),
+            // modifiers: ModifiersState::default(),
+            // mouse_down: false,
+            scene: Scene::new(),
             view_ctx,
-            prior_position: None,
-            transform: Transform2F::default()
+            // prior_position: None,
+            // transform: Transform2F::default(),
         }
     }
 
-    pub fn run(view_ctx: ViewContext)
-    {
+    pub fn run(view_ctx: ViewContext) {
         let event_loop = EventLoop::new().unwrap();
 
         event_loop.set_control_flow(ControlFlow::Wait);
-        
+
         let mut app = App::new(view_ctx);
 
         let _ = event_loop.run_app(&mut app);
     }
 }
 
-impl<'a> ApplicationHandler for App<'a> {
+impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let RenderState::Suspended(cached_window) = &mut self.render_state else {
+        let RenderState::Suspended(cached_window) = &mut self.state else {
             return;
         };
 
+        // Get the winit window cached in a previous Suspended event or else create a new window
         let window = cached_window
             .take()
-            .unwrap_or_else(|| create_window(&event_loop));
+            .unwrap_or_else(|| create_winit_window(event_loop));
 
-        let size: winit::dpi::PhysicalSize<u32> = window.inner_size();
-        let render_ctx = &mut self.render_ctx;
-        let surface_future = render_ctx.create_surface(window.clone(), size.width, size.height, wgpu::PresentMode::AutoVsync);
-        
-        // We need to block here, in case a Suspended event appeared
-        let surface: RenderSurface = pollster::block_on(surface_future).expect("Error creating surface");
+        // Create a vello Surface
+        let size = window.inner_size();
+        let surface_future = self.context.create_surface(
+            window.clone(),
+            size.width,
+            size.height,
+            wgpu::PresentMode::AutoVsync,
+        );
+        let surface = pollster::block_on(surface_future).expect("Error creating surface");
 
-        self.render_state = {
-            self.renderers.resize_with(render_ctx.devices.len(), || None);
-            self.renderers[surface.dev_id].get_or_insert_with(||create_vello_renderer(&render_ctx, &surface));
-            RenderState::Active(ActiveRenderState { window, surface })
-        };
-        event_loop.set_control_flow(ControlFlow::Poll);
+        // Create a vello Renderer for the surface (using its device id)
+        self.renderers
+            .resize_with(self.context.devices.len(), || None);
+        self.renderers[surface.dev_id]
+            .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
+
+        // Save the Window and Surface to a state variable
+        self.state = RenderState::Active(ActiveRenderState { window, surface });
     }
 
-    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
-        if let RenderState::Active(state) = &self.render_state {
-            self.render_state = RenderState::Suspended(Some(state.window.clone()));
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        if let RenderState::Active(state) = &self.state {
+            self.state = RenderState::Suspended(Some(state.window.clone()));
         }
-        event_loop.set_control_flow(ControlFlow::Wait);
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
         // Ignore the event (return from the function) if
         //   - we have no render_state
         //   - OR the window id of the event doesn't match the window id of our render_state
         //
         // Else extract a mutable reference to the render state from its containing option for use below
-        let render_state = match &mut self.render_state {
+        let render_state = match &mut self.state {
             RenderState::Active(state) if state.window.id() == window_id => state,
             _ => return,
         };
-        let render_ctx = &self.render_ctx;
 
         match event {
+            // Exit the event loop when a close is requested (e.g. window's close button is pressed)
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
-            WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed {
-                    if self.modifiers.shift_key() {
-                        match event.logical_key {
-                            Key::Named(NamedKey::ArrowRight) => self.view_ctx.seek_forward(10),
-                            Key::Named(NamedKey::ArrowLeft) =>  self.view_ctx.seek_backwards(10),
-                            _ => {}
-                        }
-                    } else {
-                        match event.logical_key {
-                            Key::Named(NamedKey::ArrowRight) => self.view_ctx.seek_forward(1),
-                            Key::Named(NamedKey::ArrowLeft) =>  self.view_ctx.seek_backwards(1),
-                            _ => {}
-                        }
-                    }
-                }
-            }
+
+            // Resize the surface when the window is resized
             WindowEvent::Resized(size) => {
-                render_ctx.resize_surface(&mut render_state.surface, size.width, size.height);
-                render_state.window.request_redraw();
+                self.context
+                    .resize_surface(&mut render_state.surface, size.width, size.height);
             }
-            WindowEvent::MouseInput { state, button, .. } => {
-                if button == MouseButton::Left {
-                    self.mouse_down = state == ElementState::Pressed;
-                }
-            }
-            WindowEvent::MouseWheel { delta, .. } => {
-                const BASE: f64 = 1.05;
-                const PIXELS_PER_LINE: f64 = 20.0;
 
-                if let Some(prior_position) = self.prior_position {
-                    let exponent = if let MouseScrollDelta::PixelDelta(delta) = delta {
-                        delta.y / PIXELS_PER_LINE
-                    } else if let MouseScrollDelta::LineDelta(_, y) = delta {
-                        y as f64
-                    } else {
-                        0.0
-                    };
-
-                    self.transform = Transform2F::from_translation(prior_position)
-                        * Transform2F::from_scale(BASE.powf(exponent) as f32)
-                        * Transform2F::from_translation(-prior_position)
-                        * self.transform;
-
-                    render_state.window.request_redraw();
-                } else {
-                    log::warn!(
-                        "Scrolling without mouse in window; this shouldn't be possible"
-                    );
-                }
-            }
-            WindowEvent::CursorLeft { .. } => {
-                self.prior_position = None;
-            }
-            WindowEvent::CursorMoved { position, .. } => {
-                let position = Vector2F::new(position.x as f32, position.y as f32);
-                if self.mouse_down {
-                    if let Some(prior) = self.prior_position {
-                        self.transform = Transform2F::from_translation(position - prior) * self.transform;
-                    }
-                }
-                self.prior_position = Some(position);
-            }
+            // This is where all the rendering happens
             WindowEvent::RedrawRequested => {
-                let width = render_state.surface.config.width;
-                let height = render_state.surface.config.height;
-                let device_handle = &render_ctx.devices[render_state.surface.dev_id];
-                
+                // Empty the scene of objects to draw. You could create a new Scene each time, but in this case
+                // the same Scene is reused so that the underlying memory allocation can also be reused.
+                self.scene.reset();
+
+                // Re-add the objects to draw to the scene.
+                // add_shapes_to_scene(&mut self.scene);
+
                 let mut scene = Scene::new();
+
                 if let Some(current) = self.view_ctx.get_current_mut() {
                     if let Some(s) = current.render(render_state.window.clone(), self.transform) {
-                        scene = s;
+                        self.scene.append(&s, None);
                     }
                 }
-    
-                let antialiasing_method = vello::AaConfig::Area;
-                let render_params = vello::RenderParams {
-                    base_color: Color::WHITE,
-                    width,
-                    height,
-                    antialiasing_method,
-                };
-                let surface_texture = render_state
-                    .surface
+
+                // Get the RenderSurface (surface + config)
+                let surface = &render_state.surface;
+
+                // Get the window size
+                let width = surface.config.width;
+                let height = surface.config.height;
+
+                // Get a handle to the device
+                let device_handle = &self.context.devices[surface.dev_id];
+
+                // Get the surface's texture
+                let surface_texture = surface
                     .surface
                     .get_current_texture()
                     .expect("failed to get surface texture");
 
-                vello::block_on_wgpu(
-                    &device_handle.device,
-                    self.renderers[render_state.surface.dev_id]
-                        .as_mut()
-                        .unwrap()
-                        .render_to_surface_async(
-                            &device_handle.device,
-                            &device_handle.queue,
-                            &scene,
-                            &surface_texture,
-                            &render_params,
-                        ),
-                )
-                .expect("failed to render to surface");
+                // Render to the surface's texture
+                self.renderers[surface.dev_id]
+                    .as_mut()
+                    .unwrap()
+                    .render_to_surface(
+                        &device_handle.device,
+                        &device_handle.queue,
+                        &self.scene,
+                        &surface_texture,
+                        &vello::RenderParams {
+                            base_color: palette::css::BLACK, // Background color
+                            width,
+                            height,
+                            antialiasing_method: AaConfig::Msaa16,
+                        },
+                    )
+                    .expect("failed to render to surface");
 
+                // Queue the texture to be presented on the surface
                 surface_texture.present();
-                device_handle.device.poll(wgpu::Maintain::Wait);
+
+                device_handle.device.poll(wgpu::Maintain::Poll);
             }
             _ => {}
         }
     }
 }
 
+/// Helper function that creates a Winit window and returns it (wrapped in an Arc for sharing between threads)
+fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
+    let attr = Window::default_attributes()
+        .with_inner_size(LogicalSize::new(1044, 800))
+        .with_resizable(true)
+        .with_title("Vello Shapes");
+    Arc::new(event_loop.create_window(attr).unwrap())
+}
+
+/// Helper function that creates a vello `Renderer` for a given `RenderContext` and `RenderSurface`
+fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface<'_>) -> Renderer {
+    Renderer::new(
+        &render_cx.devices[surface.dev_id].device,
+        RendererOptions {
+            surface_format: Some(surface.format),
+            use_cpu: false,
+            antialiasing_support: vello::AaSupport::all(),
+            num_init_threads: NonZeroUsize::new(1),
+        },
+    )
+    .expect("Couldn't create renderer")
+}
+
+/// Add shapes to a vello scene. This does not actually render the shapes, but adds them
+/// to the Scene data structure which represents a set of objects to draw.
+fn add_shapes_to_scene(scene: &mut Scene) {
+    // Draw an outlined rectangle
+    let stroke = Stroke::new(6.0);
+    let rect = RoundedRect::new(10.0, 10.0, 240.0, 240.0, 20.0);
+    let rect_stroke_color = Color::new([0.9804, 0.702, 0.5294, 1.]);
+    scene.stroke(&stroke, Affine::IDENTITY, rect_stroke_color, None, &rect);
+
+    // Draw a filled circle
+    let circle = Circle::new((420.0, 200.0), 120.0);
+    let circle_fill_color = Color::new([0.9529, 0.5451, 0.6588, 1.]);
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        circle_fill_color,
+        None,
+        &circle,
+    );
+
+    // Draw a filled ellipse
+    let ellipse = Ellipse::new((250.0, 420.0), (100.0, 160.0), -90.0);
+    let ellipse_fill_color = Color::new([0.7961, 0.651, 0.9686, 1.]);
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        ellipse_fill_color,
+        None,
+        &ellipse,
+    );
+
+    // Draw a straight line
+    let line = Line::new((260.0, 20.0), (620.0, 100.0));
+    let line_stroke_color = Color::new([0.5373, 0.7059, 0.9804, 1.]);
+    scene.stroke(&stroke, Affine::IDENTITY, line_stroke_color, None, &line);
+}
 
 pub struct FileContext {
     page_nr: u32,
     file: pdf::file::CachedFile<Vec<u8>>,
     cache: Cache<OutlineBuilder>,
 }
+
 impl FileContext {
     pub fn new(file: pdf::file::CachedFile<Vec<u8>>) -> Self {
         Self {
@@ -253,27 +281,29 @@ impl FileContext {
     fn render(&mut self, window: Arc<Window>, transform: Transform2F) -> Option<Scene> {
         let mut backend = VelloBackend::new(&mut self.cache);
         let resolver = self.file.resolver();
-    
+
         let window_size: winit::dpi::PhysicalSize<u32> = window.inner_size();
 
         let page = self.file.get_page(self.page_nr).ok()?;
 
-        render_page(&mut backend, &resolver, &page, transform, Some(Size::new(window_size.width as f32, window_size.height as f32))).ok()?;
+        render_page(&mut backend, &resolver, &page, transform).ok()?;
 
         Some(backend.finish())
     }
 }
+
 pub struct ViewContext {
     files: Vec<FileContext>,
-    current_file: Option<usize>
+    current_file: Option<usize>,
 }
+
 impl ViewContext {
     pub fn new(files: Vec<FileContext>) -> Self {
-        let current_file = if files.is_empty() {  None } else { Some(0) };
+        let current_file = if files.is_empty() { None } else { Some(0) };
 
         Self {
             files,
-            current_file
+            current_file,
         }
     }
 
@@ -301,40 +331,4 @@ impl ViewContext {
             current.page_nr = current.page_nr.saturating_sub(n);
         }
     }
-}
-
-
-fn create_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
-    let icon = {
-        let icon: image::ImageBuffer<image::Rgba<u8>, Vec<u8>> = image::load_from_memory_with_format(include_bytes!("../../logo.png"), image::ImageFormat::Png).unwrap().to_rgba8();
-
-        let image = icon;
-        let (width, height) = image.dimensions();
-        let rgba = image.into_raw();
-        Icon::from_rgba(rgba, width, height).unwrap()
-    };
-
-    let attr = Window::default_attributes()
-        .with_inner_size(LogicalSize::new(1044, 800))
-        .with_resizable(true)
-        .with_title("PDF render demo")
-        .with_window_icon(Some(icon));
-
-    Arc::new(event_loop.create_window(attr).unwrap())
-}
-
-fn create_vello_renderer(render_ctx: &RenderContext, surface: &RenderSurface) -> Renderer {
-    let id = surface.dev_id;
-
-    eprintln!("Creating renderer {id}");
-    Renderer::new(
-        &render_ctx.devices[id].device,
-        RendererOptions {
-            surface_format: Some(surface.format),
-            use_cpu: false,
-            antialiasing_support: vello::AaSupport::all(),
-            num_init_threads: NonZeroUsize::new(1),
-        },
-    )
-    .expect("Could create renderer")
 }

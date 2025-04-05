@@ -9,9 +9,9 @@ unstable = []
 embed = ["dep:rust-embed"]
 glyphmatcher = ["dep:glyphmatcher"]
 
-[[bench]]
-name = "render"
-harness = false
+# [[bench]]
+# name = "render"
+# harness = false
 
 [dependencies.pdf]
 default-features = false
